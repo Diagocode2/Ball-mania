@@ -13,4 +13,3 @@ El proyecto incluye un flujo de trabajo de **CI/CD** configurado en GitHub Actio
 - Compila la aplicación.
 - Genera artefactos listos para distribución.
 
-## 📂 Estructura del Proyecto
