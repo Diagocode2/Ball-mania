@@ -7,6 +7,7 @@ from kivy.graphics import Color, Ellipse, Line, Rectangle, RoundedRectangle
 from random import random, uniform, choice
 import math
 
+
 BARRA_ALTURA = 90
 EVENTO_DURACION = 20
 MINI_SCALE = 2 / 3
