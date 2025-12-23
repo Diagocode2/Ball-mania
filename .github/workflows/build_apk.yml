@@ -12,9 +12,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Checkout del código
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2. Instalar dependencias básicas + python-for-android
       - name: Install dependencies
         run: |
           sudo apt update
@@ -24,8 +26,9 @@ jobs:
             libssl-dev autopoint gettext wget
           
           python3 -m pip install --upgrade pip
-          python3 -m pip install buildozer cython==0.29.34
+          python3 -m pip install buildozer cython==0.29.34 python-for-android
 
+      # 3. Instalar Android SDK y aceptar licencias
       - name: Install Android SDK
         run: |
           wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
@@ -39,12 +42,12 @@ jobs:
           yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses
           $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
 
-      - name: Clean Buildozer
-        run: buildozer android clean
-
+      # 4. Compilar APK con Buildozer
       - name: Build APK
-        run: buildozer android debug
+        run: |
+          buildozer android debug
 
+      # 5. Subir APK como artefacto
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
