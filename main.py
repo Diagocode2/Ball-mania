@@ -1,20 +1,68 @@
 from kivy.app import App
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.gridlayout import GridLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.clock import Clock
-from kivy.graphics import Color, Ellipse, Line, Rectangle, RoundedRectangle
+from kivy.graphics import Color, Ellipse, Line, Rectangle, RoundedRectangle, InstructionGroup
 from random import random, uniform, choice
 import math
-
 
 BARRA_ALTURA = 90
 EVENTO_DURACION = 20
 MINI_SCALE = 2 / 3
 
-# =========================
-# CLASE BOLA BASE
-# =========================
+class AgujeroNegro:
+    def __init__(self, parent, x, y):
+        self.parent = parent
+        self.size = 80
+        self.radio_succion = 350
+        self.fuerza = 1600 
+        self.pos = (x, y)
+        self.tiempo_vida = 50.0
+        
+        self.group = InstructionGroup()
+        self.color_aura = Color(0.6, 0.1, 1, 0.4)
+        self.aura = Line(circle=(x, y, self.size/2 + 5), width=2)
+        self.color_centro = Color(0, 0, 0, 1)
+        self.circle = Ellipse(size=(self.size, self.size), pos=(x - self.size/2, y - self.size/2))
+        
+        self.group.add(self.color_aura)
+        self.group.add(self.aura)
+        self.group.add(self.color_centro)
+        self.group.add(self.circle)
+        self.parent.canvas.before.add(self.group)
+
+    def update(self, dt, bolas):
+        self.tiempo_vida -= dt
+        self.size += 12 * dt 
+        self.radio_succion += 8 * dt
+        latido = math.sin(Clock.get_time() * 7) * 4
+        current_s = self.size + latido
+        self.circle.size = (current_s, current_s)
+        self.circle.pos = (self.pos[0] - current_s/2, self.pos[1] - current_s/2)
+        self.aura.circle = (self.pos[0], self.pos[1], current_s/2 + 6)
+        
+        for b in bolas[:]:
+            bx, by = b.circle.pos[0] + b.size/2, b.circle.pos[1] + b.size/2
+            dx = self.pos[0] - bx
+            dy = self.pos[1] - by
+            distancia = math.sqrt(dx**2 + dy**2)
+            if distancia < self.size / 2:
+                self.size += 2
+                self.parent.stats_dict["absorbidas"] += 1 
+                self.parent.eliminar_bola(b)
+            elif distancia < self.radio_succion:
+                fuerza_n = (self.fuerza / (distancia + 1))
+                b.vx += dx * fuerza_n * dt
+                b.vy += dy * fuerza_n * dt
+
+        if self.tiempo_vida <= 0:
+            self.parent.eliminar_agujero(self)
+
+    def limpiar(self):
+        self.parent.canvas.before.remove(self.group)
+
 class Bola:
     def __init__(self, parent, x, y, rainbow=False, giant=False, mini=False):
         self.parent = parent
@@ -63,14 +111,15 @@ class Bola:
         x, y = self.circle.pos
         x += self.vx * dt * speed
         y += self.vy * dt * speed
-
-        if x <= 0: x = 0; self.vx = abs(self.vx)
-        elif x + self.size >= self.parent.width: x = self.parent.width - self.size; self.vx = -abs(self.vx)
-        if y <= BARRA_ALTURA: y = BARRA_ALTURA; self.vy = abs(self.vy)
-        elif y + self.size >= self.parent.height: y = self.parent.height - self.size; self.vy = -abs(self.vy)
-
-        self.circle.pos = (x, y)
-        self.actualizar_borde()
+        if x <= 0: 
+            x = 0; self.vx = abs(self.vx); self.parent.stats_dict["rebotes"] += 1
+        elif x + self.size >= self.parent.width: 
+            x = self.parent.width - self.size; self.vx = -abs(self.vx); self.parent.stats_dict["rebotes"] += 1
+        if y <= BARRA_ALTURA: 
+            y = BARRA_ALTURA; self.vy = abs(self.vy); self.parent.stats_dict["rebotes"] += 1
+        elif y + self.size >= self.parent.height: 
+            y = self.parent.height - self.size; self.vy = -abs(self.vy); self.parent.stats_dict["rebotes"] += 1
+        self.circle.pos = (x, y); self.actualizar_borde()
 
     def limpiar(self):
         try:
@@ -80,19 +129,38 @@ class Bola:
             self.parent.canvas.before.remove(self.border_color_instr)
         except: pass
 
-# =========================
-# CLASES ESPECIALES
-# =========================
+class BolaColisionable(Bola):
+    def __init__(self, parent, x, y, **kwargs):
+        super().__init__(parent, x, y, **kwargs)
+        if not self.rainbow:
+            self.base_color = (0.7, 0.7, 0.8)
+            self.color_instr.rgb = self.base_color
+
+    def move(self, dt, speed):
+        super().move(dt, speed)
+        for otra in self.parent.bolas:
+            if otra is self: continue
+            c1x, c1y = self.circle.pos[0] + self.size/2, self.circle.pos[1] + self.size/2
+            c2x, c2y = otra.circle.pos[0] + otra.size/2, otra.circle.pos[1] + otra.size/2
+            dx = c1x - c2x
+            dy = c1y - c2y
+            distancia = math.sqrt(dx*dx + dy*dy)
+            min_dist = (self.size/2) + (otra.size/2)
+            if distancia < min_dist:
+                self.vx, otra.vx = otra.vx, self.vx
+                self.vy, otra.vy = otra.vy, self.vy
+                overlap = min_dist - distancia
+                angle = math.atan2(dy, dx)
+                self.circle.pos = (self.circle.pos[0] + math.cos(angle) * overlap, 
+                                   self.circle.pos[1] + math.sin(angle) * overlap)
+
 class BolaFragmento(Bola):
     def __init__(self, parent, x, y):
         super().__init__(parent, x, y, rainbow=True, mini=True)
         self.vida = 10.0
-
     def move(self, dt, speed):
-        super().move(dt, speed)
-        self.vida -= dt
-        if self.vida <= 0:
-            self.parent.eliminar_bola(self)
+        super().move(dt, speed); self.vida -= dt
+        if self.vida <= 0: self.parent.eliminar_bola(self)
 
 class BolaEvolutiva(Bola):
     def __init__(self, parent, x, y):
@@ -100,197 +168,228 @@ class BolaEvolutiva(Bola):
         self.vida = 10.0
         self.en_colision = False
         self.limite_tamano = 400 
-
     def move(self, dt, speed):
         x, y = self.circle.pos
         toca_pared = False
         x += self.vx * dt * speed
         y += self.vy * dt * speed
-
         if x <= 0: x = 0; self.vx = abs(self.vx); toca_pared = True
         elif x + self.size >= self.parent.width: x = self.parent.width - self.size; self.vx = -abs(self.vx); toca_pared = True
         if y <= BARRA_ALTURA: y = BARRA_ALTURA; self.vy = abs(self.vy); toca_pared = True
         elif y + self.size >= self.parent.height: y = self.parent.height - self.size; self.vy = -abs(self.vy); toca_pared = True
-
         if toca_pared:
             if not self.en_colision:
-                if self.size < self.limite_tamano:
-                    self.set_scale(self.factor_actual * 1.30)
+                if self.size < self.limite_tamano: self.set_scale(self.factor_actual * 1.30)
                 self.en_colision = True
         else: self.en_colision = False
-
-        self.circle.pos = (x, y)
-        self.actualizar_borde()
-        
+        self.circle.pos = (x, y); self.actualizar_borde()
         self.vida -= dt
-        if self.vida <= 0:
-            self.explotar()
-
+        if self.vida <= 0: self.explotar()
     def explotar(self):
-        centro_x = self.circle.pos[0] + self.size / 2
-        centro_y = self.circle.pos[1] + self.size / 2
+        cx, cy = self.circle.pos[0] + self.size/2, self.circle.pos[1] + self.size/2
         self.parent.eliminar_bola(self)
-        num_hijas = 8 
-        for i in range(num_hijas):
-            angulo = (2 * math.pi / num_hijas) * i
-            nx = centro_x + math.cos(angulo) * 10
-            ny = max(centro_y + math.sin(angulo) * 10, BARRA_ALTURA + 15)
-            fragmento = BolaFragmento(self.parent, nx, ny)
-            fragmento.vx = math.cos(angulo) * 480
-            fragmento.vy = math.sin(angulo) * 480
-            self.parent.bolas.append(fragmento)
+        for i in range(8):
+            ang = (2 * math.pi / 8) * i
+            nx, ny = cx + math.cos(ang) * 10, max(cy + math.sin(ang) * 10, BARRA_ALTURA + 15)
+            f = BolaFragmento(self.parent, nx, ny)
+            f.vx, f.vy = math.cos(ang) * 480, math.sin(ang) * 480
+            self.parent.bolas.append(f)
             self.parent.total_bolas += 1 
         self.parent.actualizar_label_contador()
 
-# =========================
-# CLASE PRINCIPAL DEL JUEGO
-# =========================
 class Juego(FloatLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.bolas = []
-        self.paused = False
-        self.speed_scale = 1
-        self.evento_timer = 0
+        self.bolas, self.agujeros = [], []
+        self.paused, self.speed_scale = False, 1
+        self.evento_timer, self.total_bolas, self.total_rainbow = 0, 0, 0
+        self.total_crecientes, self.total_eventos, self.tiempo, self.bg_hue = 0, 0, 0, 0
+        self.stats_dict = {"rebotes": 0, "max_simultaneas": 0, "absorbidas": 0, "fragmentos": 0}
         
-        self.total_bolas = 0
-        self.total_rainbow = 0
-        self.total_crecientes = 0
-        self.total_eventos = 0
-        self.tiempo = 0
-        self.bg_hue = 0
-
         with self.canvas.before:
             self.bg_color = Color(1, 1, 1, 1)
             self.bg = Rectangle(pos=self.pos, size=self.size)
-            self.barra_color = Color(0.95, 0.95, 0.95, 1)
-            self.barra_rect = Rectangle(pos=(0, 0), size=(self.width, BARRA_ALTURA))
-
+        
         self.bind(size=self._resize, pos=self._resize)
-        self._crear_ui()
+        self._crear_ui_botones()
+        
+        self.lbl_evento = Label(text="", color=(0,0,0,1), font_size=26, bold=True, size_hint=(None, None), size=(400, 50), pos_hint={"center_x": 0.5, "top": 0.98})
+        self.add_widget(self.lbl_evento)
+        
+        self._crear_ui_paneles()
         Clock.schedule_interval(self.update, 1 / 60)
 
     def _resize(self, *args):
         self.bg.size = self.size
         self.barra_rect.size = (self.width, BARRA_ALTURA)
-        self.stats_bg.pos = (self.width * 0.1, self.height * 0.15)
-        self.stats_bg.size = (self.width * 0.8, self.height * 0.7)
-        self.stats_bg.radius = [25,]
+        ancho_p, alto_p = self.width * 0.8, self.height * 0.7
+        pos_x, pos_y = self.width * 0.1, self.height * 0.15
+        for panel, bg in [(self.stats_panel, self.stats_bg), (self.debug_panel, self.debug_bg)]:
+            panel.size, panel.pos = (ancho_p, alto_p), (pos_x, pos_y)
+            bg.size, bg.pos = (ancho_p, alto_p), (pos_x, pos_y)
 
-    def _crear_ui(self):
-        self.btn_evento = Button(text="Evento", size_hint=(.25, None), height=BARRA_ALTURA, pos_hint={"x": 0, "y": 0})
+    def _crear_ui_botones(self):
+        self.ui_inferior = FloatLayout(size_hint=(1, None), height=BARRA_ALTURA)
+        with self.ui_inferior.canvas.before:
+            Color(0.95, 0.95, 0.95, 1)
+            self.barra_rect = Rectangle(pos=(0, 0), size=(self.width, BARRA_ALTURA))
+            
+        self.btn_evento = Button(text="Evento", size_hint=(.25, 1), pos_hint={"x": 0})
         self.btn_evento.bind(on_release=self.evento)
-        self.add_widget(self.btn_evento)
-
-        self.btn_pausa = Button(text="Pausa", size_hint=(.25, None), height=BARRA_ALTURA, pos_hint={"x": .25, "y": 0})
+        self.btn_pausa = Button(text="Pausa", size_hint=(.25, 1), pos_hint={"x": .25})
         self.btn_pausa.bind(on_release=self.toggle_pausa)
-        self.add_widget(self.btn_pausa)
-
-        self.btn_reset = Button(text="reset", size_hint=(.25, None), height=BARRA_ALTURA, pos_hint={"x": .5, "y": 0})
+        self.btn_reset = Button(text="Reset", size_hint=(.25, 1), pos_hint={"x": .5})
         self.btn_reset.bind(on_release=self.reset)
-        self.add_widget(self.btn_reset)
-
-        self.lbl_contador = Label(text="Bolas: 0", color=(0, 0, 0, 1), size_hint=(.25, None), height=BARRA_ALTURA, pos_hint={"x": .75, "y": 0})
-        self.add_widget(self.lbl_contador)
-
-        self.lbl_evento = Label(text="", color=(0, 0, 0, 1), font_size=24, size_hint=(None, None), size=(300, 50), pos_hint={"center_x": 0.5, "top": 0.95})
-        self.add_widget(self.lbl_evento)
-
-        # Botón de información/estadísticas con "?"
-        self.btn_stats = Button(text="?", size_hint=(None, None), size=(70, 70), pos_hint={"x": 0.01, "top": 0.99})
-        self.btn_stats.bind(on_release=self.mostrar_stats)
-        self.add_widget(self.btn_stats)
-
-        self.stats_panel = FloatLayout(opacity=0)
-        with self.stats_panel.canvas.before:
-            Color(1, 1, 1, .95)
-            self.stats_bg = RoundedRectangle(radius=[25,])
+        self.lbl_contador = Label(text="Bolas: 0", color=(0,0,0,1), size_hint=(.25, 1), pos_hint={"x": .75})
         
-        self.stats_label = Label(text="", color=(0, 0, 0, 1), halign="left", valign="top", size_hint=(.7, .6), pos_hint={"center_x": 0.5, "center_y": 0.53})
-        self.stats_label.bind(size=self.stats_label.setter("text_size"))
-        self.stats_panel.add_widget(self.stats_label)
+        self.ui_inferior.add_widget(self.btn_evento); self.ui_inferior.add_widget(self.btn_pausa)
+        self.ui_inferior.add_widget(self.btn_reset); self.ui_inferior.add_widget(self.lbl_contador)
+        self.add_widget(self.ui_inferior)
+        
+        self.btn_stats = Button(text="?", size_hint=(None, None), size=(70, 70), pos_hint={"x": 0.01, "top": 0.99}, background_color=(0, 0.5, 0.8, 1))
+        self.btn_stats.bind(on_release=self.mostrar_stats); self.add_widget(self.btn_stats)
+        
+        self.btn_debug_trigger = Button(text="!", size_hint=(None, None), size=(70, 70), pos_hint={"right": 0.99, "top": 0.99}, background_color=(1,0,0,1))
+        self.btn_debug_trigger.bind(on_release=self.mostrar_debug); self.add_widget(self.btn_debug_trigger)
 
-        btn_cerrar = Button(text="Cerrar", size_hint=(None, None), size=(140, 45), pos_hint={"center_x": .5, "y": .18})
-        btn_cerrar.bind(on_release=self.ocultar_stats)
-        self.stats_panel.add_widget(btn_cerrar)
+    def _crear_ui_paneles(self):
+        self.stats_panel = FloatLayout(opacity=0, disabled=True, size_hint=(None, None))
+        with self.stats_panel.canvas.before:
+            Color(0.1, 0.1, 0.15, .95); self.stats_bg = RoundedRectangle(radius=[25])
+        
+        self.stats_title = Label(text="ESTADÍSTICAS", font_size=32, bold=True, size_hint=(1, 0.1), pos_hint={"center_x": 0.5, "top": 0.95})
+        self.stats_panel.add_widget(self.stats_title)
+        
+        self.stats_grid = GridLayout(cols=2, spacing=15, padding=30, size_hint=(.9, .6), pos_hint={"center_x": .5, "center_y": .5})
+        self.btn_cerrar_stats = Button(text="Cerrar", size_hint=(None, None), size=(180, 65), pos_hint={"center_x": .5, "y": .05}, bold=True)
+        self.btn_cerrar_stats.bind(on_release=self.ocultar_paneles)
+        self.stats_panel.add_widget(self.stats_grid); self.stats_panel.add_widget(self.btn_cerrar_stats)
         self.add_widget(self.stats_panel)
+        
+        self.debug_panel = FloatLayout(opacity=0, disabled=True, size_hint=(None, None))
+        with self.debug_panel.canvas.before:
+            Color(.1, .1, .1, .95); self.debug_bg = RoundedRectangle(radius=[25])
+        
+        grid = GridLayout(cols=2, spacing=15, size_hint=(.9, .7), pos_hint={"center_x": .5, "center_y": .55})
+        opc = [("Rainbow", lambda x: self.crear_bola_especifica("RAINBOW")), 
+               ("Creciente", lambda x: self.crear_bola_especifica("CRECIENTE")), 
+               ("Colisión", lambda x: self.crear_bola_especifica("COLISION")), 
+               ("Gigante", lambda x: self.crear_bola_especifica("GIGANTE")),
+               ("Ocultar UI", self.toggle_ui_visibility)]
+        
+        for t, f in opc:
+            b = Button(text=t, font_size=18, bold=True); b.bind(on_release=f); grid.add_widget(b)
+            
+        self.btn_bh = Button(text="AGUJERO NEGRO", font_size=18, bold=True, background_color=(0.6, 0.1, 1, 1))
+        self.btn_bh.bind(on_release=self.crear_agujero)
+        grid.add_widget(self.btn_bh)
 
-    def evento(self, *_):
-        eventos = ["SPEED", "SLOWED", "RAINBOW", "GIANT", "MINI"]
-        elegido = choice(eventos)
-        self.evento_timer = EVENTO_DURACION
-        self.total_eventos += 1
-        self.lbl_evento.text = f"Evento: {elegido}"
-        self.speed_scale = 4 if elegido == "SPEED" else (0.35 if elegido == "SLOWED" else 1)
+        eventos_debug = [("Evento MINI", "MINI"), ("Evento GIANT", "GIANT"), ("Evento SPEED", "SPEED"), ("Evento SLOWED", "SLOWED")]
+        for t, ev in eventos_debug:
+            b = Button(text=t, font_size=18, bold=True)
+            b.bind(on_release=lambda x, e=ev: self.forzar_evento(e))
+            grid.add_widget(b)
+
+        self.btn_cerrar_debug = Button(text="Cerrar Debug", size_hint=(None, None), size=(180, 55), pos_hint={"center_x": .5, "y": .05}, font_size=18)
+        self.btn_cerrar_debug.bind(on_release=self.ocultar_paneles)
+        self.debug_panel.add_widget(grid); self.debug_panel.add_widget(self.btn_cerrar_debug)
+        self.add_widget(self.debug_panel)
+
+    def on_touch_down(self, touch):
+        if self.stats_panel.opacity > 0:
+            if self.btn_cerrar_stats.collide_point(*touch.pos): return self.btn_cerrar_stats.on_touch_down(touch)
+            return True
+        if self.debug_panel.opacity > 0:
+            if self.debug_panel.collide_point(*touch.pos): return super().on_touch_down(touch)
+            return True
+        if self.ui_inferior.collide_point(*touch.pos) or self.btn_stats.collide_point(*touch.pos) or self.btn_debug_trigger.collide_point(*touch.pos):
+            return super().on_touch_down(touch)
+        if not self.paused and touch.y > BARRA_ALTURA:
+            self.crear_bola(touch.x, touch.y); return True
+        return False
+
+    def on_touch_move(self, touch):
+        if not self.paused and touch.y > BARRA_ALTURA and self.stats_panel.opacity == 0 and self.debug_panel.opacity == 0:
+            self.crear_bola(touch.x, touch.y); return True
+        return False
+
+    def mostrar_stats(self, *_):
+        self.paused = True
+        self.stats_grid.clear_widgets()
+        m, s = divmod(int(self.tiempo), 60)
+        datos = [("TIEMPO TOTAL:", f"{m:02d}:{s:02d}"), ("BOLAS CREADAS:", str(self.total_bolas)),
+                 ("EN PANTALLA:", str(len(self.bolas))), ("MÁXIMO RÉCORD:", str(self.stats_dict["max_simultaneas"])),
+                 ("REBOTES PARED:", str(self.stats_dict["rebotes"])), ("ABSORBIDAS:", str(self.stats_dict["absorbidas"]))]
+        for titulo, valor in datos:
+            self.stats_grid.add_widget(Label(text=titulo, bold=True)); self.stats_grid.add_widget(Label(text=valor))
+        self.stats_panel.opacity, self.stats_panel.disabled = 1, False
+
+    def mostrar_debug(self, *_): self.paused, self.debug_panel.opacity, self.debug_panel.disabled = True, 1, False
+    def ocultar_paneles(self, *_): 
+        self.stats_panel.opacity = self.debug_panel.opacity = 0
+        self.stats_panel.disabled = self.debug_panel.disabled = True
+        self.paused = False
+
+    def crear_bola(self, x, y):
+        prob = random()
+        if prob < 0.20: 
+            bola = BolaEvolutiva(self, x, y); self.total_crecientes += 1
+        else:
+            rb = random() < 0.25 or "RAINBOW" in self.lbl_evento.text
+            bola = Bola(self, x, y, rb, "GIANT" in self.lbl_evento.text, "MINI" in self.lbl_evento.text)
+            if rb: self.total_rainbow += 1
+        self.bolas.append(bola); self.total_bolas += 1; self.actualizar_label_contador()
+
+    def crear_agujero(self, *_):
+        self.agujeros.append(AgujeroNegro(self, self.width/2, (self.height + BARRA_ALTURA)/2)); self.ocultar_paneles()
+
+    def eliminar_agujero(self, a): 
+        if a in self.agujeros: a.limpiar(); self.agujeros.remove(a)
+
+    def toggle_ui_visibility(self, *_): self.ui_inferior.opacity = self.btn_stats.opacity = 0 if self.ui_inferior.opacity == 1 else 1
+    
+    def crear_bola_especifica(self, t):
+        x, y = self.width/2, self.height/2
+        if t=="RAINBOW": b=Bola(self, x, y, rainbow=True)
+        elif t=="CRECIENTE": b=BolaEvolutiva(self, x, y)
+        elif t=="COLISION": b=BolaColisionable(self, x, y)
+        elif t=="GIGANTE": b=Bola(self, x, y, giant=True)
+        self.bolas.append(b); self.total_bolas+=1; self.actualizar_label_contador()
+    
+    def forzar_evento(self, t):
+        self.evento_timer, self.lbl_evento.text = EVENTO_DURACION, f"Evento: {t}"
+        self.speed_scale = 4 if t=="SPEED" else (0.35 if t=="SLOWED" else 1)
         for b in self.bolas:
-            if elegido == "RAINBOW": b.rainbow = True
-            elif elegido == "GIANT": b.set_scale(2.0)
-            elif elegido == "MINI": b.set_scale(MINI_SCALE)
-            else: b.set_scale(1.0)
+            if t=="RAINBOW": b.rainbow=True
+            elif t=="GIANT": b.set_scale(2.0)
+            elif t=="MINI": b.set_scale(MINI_SCALE)
 
-    def toggle_pausa(self, *_):
-        self.paused = not self.paused
-        self.btn_pausa.text = "Reanudar" if self.paused else "Pausa"
-
+    def evento(self, *_): self.forzar_evento(choice(["SPEED", "SLOWED", "RAINBOW", "GIANT", "MINI"]))
+    def toggle_pausa(self, *_): self.paused = not self.paused; self.btn_pausa.text = "Reanudar" if self.paused else "Pausa"
+    
     def reset(self, *_):
         for b in self.bolas: b.limpiar()
+        for a in self.agujeros: a.limpiar()
         self.bolas.clear()
+        self.agujeros.clear()
         self.actualizar_label_contador()
         self.lbl_evento.text = ""
         self.evento_timer = 0
         self.speed_scale = 1
-
-    def mostrar_stats(self, *_):
-        self.paused = True
-        m, s = divmod(int(self.tiempo), 60)
-        self.stats_label.text = (f"ESTADÍSTICAS\n\n"
-                                 f"Bolas totales: {self.total_bolas}\n"
-                                 f"Bolas rainbow: {self.total_rainbow}\n"
-                                 f"Bolas crecientes: {self.total_crecientes}\n"
-                                 f"Eventos sucedidos: {self.total_eventos}\n"
-                                 f"Tiempo total: {m:02d}:{s:02d}")
-        self.stats_panel.opacity = 1
-
-    def ocultar_stats(self, *_):
-        self.stats_panel.opacity = 0
-        self.paused = False
-
-    def eliminar_bola(self, bola):
-        if bola in self.bolas:
-            self.bolas.remove(bola)
-            bola.limpiar()
-            self.actualizar_label_contador()
-
-    def actualizar_label_contador(self):
-        self.lbl_contador.text = f"Bolas: {len(self.bolas)}"
-
-    def crear_bola(self, x, y):
-        if y <= BARRA_ALTURA or self.stats_panel.opacity > 0: return
-        if random() < 0.15:
-            bola = BolaEvolutiva(self, x, y)
-            self.total_crecientes += 1
-        else:
-            rainbow = random() < 0.25 or "RAINBOW" in self.lbl_evento.text
-            bola = Bola(self, x, y, rainbow, "GIANT" in self.lbl_evento.text, "MINI" in self.lbl_evento.text)
-            if rainbow: self.total_rainbow += 1
-        self.bolas.append(bola)
-        self.total_bolas += 1
-        self.actualizar_label_contador()
-
-    def on_touch_down(self, touch):
-        if super(Juego, self).on_touch_down(touch): return True
-        if not self.paused: self.crear_bola(touch.x, touch.y)
-        return False
-
-    def on_touch_move(self, touch):
-        if not self.paused: self.crear_bola(touch.x, touch.y)
-        return False
-
+        
+    def eliminar_bola(self, b): 
+        if b in self.bolas: self.bolas.remove(b); b.limpiar(); self.actualizar_label_contador()
+        
+    def actualizar_label_contador(self): 
+        actual = len(self.bolas); self.lbl_contador.text = f"Bolas: {actual}"
+        if actual > self.stats_dict["max_simultaneas"]: self.stats_dict["max_simultaneas"] = actual
+    
     def update(self, dt):
         self.bg_hue = (self.bg_hue + dt * 0.02) % 1
         self.bg_color.hsv = (self.bg_hue, 0.1, 1)
         if self.paused: return
         self.tiempo += dt
+        for a in self.agujeros[:]: a.update(dt, self.bolas)
         if self.evento_timer > 0:
             self.evento_timer -= dt
             if self.evento_timer <= 0:
@@ -299,9 +398,7 @@ class Juego(FloatLayout):
                     if not isinstance(b, (BolaEvolutiva, BolaFragmento)): b.rainbow = False
                     b.set_scale(1.0)
                 self.lbl_evento.text = ""
-        for b in self.bolas[:]:
-            b.move(dt, self.speed_scale)
-            b.update_color(dt)
+        for b in self.bolas[:]: b.move(dt, self.speed_scale); b.update_color(dt)
 
 class JuegoApp(App):
     def build(self): return Juego()
