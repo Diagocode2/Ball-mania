@@ -5,15 +5,13 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.clock import Clock
 from kivy.graphics import Color, Ellipse, Line, Rectangle, RoundedRectangle, InstructionGroup
-from kivy.uix.screenmanager import ScreenManager, Screen, FadeTransition # Importaciones nuevas
+from kivy.uix.screenmanager import ScreenManager, Screen, FadeTransition 
 from random import random, uniform, choice
 import math
 
 BARRA_ALTURA = 90
 EVENTO_DURACION = 20
 MINI_SCALE = 2 / 3
-
-# --- CLASES DEL JUEGO ORIGINAL (AgujeroNegro, Bolas, etc.) ---
 
 class AgujeroNegro:
     def __init__(self, parent, x, y):
@@ -305,7 +303,6 @@ class Juego(FloatLayout):
         self.add_widget(self.lbl_evento)
         
         self._crear_ui_paneles()
-        # Nota: El Clock se inicia cuando se crea el juego
         self.clock_event = Clock.schedule_interval(self.update, 1 / 60)
 
     def _resize(self, *args):
@@ -341,6 +338,7 @@ class Juego(FloatLayout):
         
         self.btn_debug_trigger = Button(text="!", size_hint=(None, None), size=(70, 70), pos_hint={"right": 0.99, "top": 0.99}, background_color=(1,0,0,1))
         self.btn_debug_trigger.bind(on_release=self.mostrar_debug); self.add_widget(self.btn_debug_trigger)
+
     def _crear_ui_paneles(self):
         self.stats_panel = FloatLayout(opacity=0, disabled=True, size_hint=(None, None))
         with self.stats_panel.canvas.before:
@@ -367,12 +365,14 @@ class Juego(FloatLayout):
                ("KILLER", lambda x: self.crear_bola_especifica("KILLER")), 
                ("GRAVITY", lambda x: self.crear_bola_especifica("GRAVITY")),
                ("REPEL", lambda x: self.crear_bola_especifica("REPEL")),
+               ("BOLA COMÚN", lambda x: self.crear_bola_especifica("NORMAL")), 
                ("Ocultar UI", self.toggle_ui_visibility)]
 
         for t, f in opc:
             b = Button(text=t, font_size=18, bold=True); b.bind(on_release=f); grid.add_widget(b)
 
-        eventos_debug = [("Evento MINI", "MINI"), ("Evento GIANT", "GIANT"), ("Evento SPEED", "SPEED"), ("Evento SLOWED", "SLOWED")]
+        # SE HA AÑADIDO 'Evento RAINBOW' AQUÍ:
+        eventos_debug = [("Evento MINI", "MINI"), ("Evento GIANT", "GIANT"), ("Evento SPEED", "SPEED"), ("Evento SLOWED", "SLOWED"), ("Evento RAINBOW", "RAINBOW")]
         for t, ev in eventos_debug:
             b = Button(text=t, font_size=18, bold=True)
             b.bind(on_release=lambda x, e=ev: self.forzar_evento(e))
@@ -430,6 +430,7 @@ class Juego(FloatLayout):
             self.wall_mode = "OFF"
             self.btn_wall.text = "PARED: OFF"
             self.btn_wall.background_color = (1, 0, 0, 1)
+
     def toggle_magnet_mode(self, *_):
         modos = ["OFF", "ATRAER", "REPELER"]
         idx = (modos.index(self.debug_mode) + 1) % len(modos)
@@ -558,7 +559,8 @@ class Juego(FloatLayout):
                         self.stats_dict["rebotes"] += 1
 
     def update(self, dt):
-        self.bg_hue = (self.bg_hue + dt * 0.02) % 1
+        v_fondo = 0.10 if self.speed_scale > 1 else 0.02
+        self.bg_hue = (self.bg_hue + dt * v_fondo) % 1
         self.bg_color.hsv = (self.bg_hue, 0.1, 1)
         if self.paused: return
         self.tiempo += dt
@@ -669,39 +671,26 @@ class Juego(FloatLayout):
         self.stats_panel.opacity = self.debug_panel.opacity = 0
         self.stats_panel.disabled = self.debug_panel.disabled = True
         self.paused = False
-
-# --- GESTIÓN DE PANTALLAS (ScreenManager) ---
-from kivy.uix.screenmanager import ScreenManager, Screen, FadeTransition
-
 class MenuScreen(Screen):
     def __init__(self, **kwargs):
         super(MenuScreen, self).__init__(**kwargs)
         layout = FloatLayout()
         with layout.canvas.before:
-            Color(0.7, 0.9, 0.7, 1) # Verde Lima
+            Color(0.7, 0.9, 0.7, 1)
             self.rect = Rectangle(size=(2000, 2000))
-        
-        # Título
         lbl = Label(text="[b][i]BALL MANIA[/i][/b]", markup=True, font_size=80, 
                     color=(0, 0, 0, 1), pos_hint={"center_x": 0.5, "center_y": 0.7})
-        
-        # Botón JUGAR (Posición Y: 0.5)
         btn_jugar = Button(text="[b][i]JUGAR[/i][/b]", markup=True, 
                      size_hint=(0.6, 0.08), pos_hint={"center_x": 0.5, "center_y": 0.5}, 
                      background_color=(0.5, 0.5, 0.5, 1))
         btn_jugar.bind(on_release=self.iniciar)
-        
-        # --- NUEVO: Botón SALIR (Posición Y: 0.38) ---
         btn_salir = Button(text="[b][i]SALIR[/i][/b]", markup=True, 
                      size_hint=(0.6, 0.08), pos_hint={"center_x": 0.5, "center_y": 0.38}, 
                      background_color=(0.5, 0.5, 0.5, 1))
         btn_salir.bind(on_release=self.salir)
-
-        # Añadir widgets al layout
         layout.add_widget(lbl)
         layout.add_widget(btn_jugar)
-        layout.add_widget(btn_salir) # Añadimos el botón de salir
-        
+        layout.add_widget(btn_salir)
         lbl_version = Label(
             text="BALL MANIA VERSIÓN 0.4",
             font_size=37,
@@ -727,7 +716,7 @@ class LoadingScreen(Screen):
             Rectangle(size=(2000,2000))
         lbl = Label(text="[i]CARGANDO...[/i]", markup=True, font_size=50)
         layout.add_widget(lbl); self.add_widget(layout)
-        Clock.schedule_once(self.fin_carga, 10)
+        Clock.schedule_once(self.fin_carga, 7)
 
     def fin_carga(self, *_): self.manager.current = 'game'
 
