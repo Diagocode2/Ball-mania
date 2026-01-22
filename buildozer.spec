@@ -12,13 +12,13 @@ title = Ball Mania
 package.name = ballmania
 
 # (str) Package domain (needed for android/ios packaging)
-package.domain = dv.ballmania
+package.domain = org.test
 
 # (str) Source code where the main.py live
 source.dir = .
 
 # (list) Source files to include (leave empty to include all the files)
-source.include_exts = py,png,jpg,kv,atlas
+source.include_exts = py,png,jpg,kv
 
 # (list) List of inclusions using pattern matching
 #source.include_patterns = assets/*,images/*.png
@@ -34,7 +34,7 @@ source.include_exts = py,png,jpg,kv,atlas
 #source.exclude_patterns = license,images/*/*.jpg
 
 # (str) Application versioning (method 1)
-version = 0.1
+version = 0.4
 
 # (str) Application versioning (method 2)
 # version.regex = __version__ = ['"](.*)['"]
@@ -49,7 +49,7 @@ requirements = python3,kivy,filetype
 # requirements.source.kivy = ../../kivy
 
 # (str) Presplash of the application
-#presplash.filename = %(source.dir)s/data/presplash.png
+presplash.filename = %(source.dir)s/icon.png
 
 # (str) Icon of the application
 icon.filename = %(source.dir)s/icon.png
